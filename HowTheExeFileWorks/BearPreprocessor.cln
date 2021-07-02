@@ -1,0 +1,122 @@
+#include <stdio.h>
+
+#include <fstream>
+#include <iostream>
+#include <opencv2/opencv.hpp>
+#include <string>
+#include <vector>
+
+using namespace cv;
+using namespace std;
+
+vector<Mat> rgb2hsv(Mat& frame) {
+  Mat frame_hsv, result;
+  vector<Mat> _hsv;
+  cvtColor(frame, frame_hsv, COLOR_BGR2HSV);
+  split(frame_hsv, _hsv);
+
+  return _hsv;
+}
+Mat vib(Mat& temp, double val) {
+  Mat res(temp.size(), CV_32FC3);
+  Mat Img_out(temp.size(), CV_32FC3);
+  temp.convertTo(Img_out, CV_32FC3);
+  Mat Img_in(temp.size(), CV_32FC3);
+  temp.convertTo(Img_in, CV_32FC3);
+  // define the iterator of the input image
+  MatIterator_<Vec3f> inp_begin, inp_end;
+  inp_begin = Img_in.begin<Vec3f>();
+  inp_end = Img_in.end<Vec3f>();
+  // define the iterator of the output image
+  MatIterator_<Vec3f> out_begin, out_end;
+  out_begin = Img_out.begin<Vec3f>();
+  out_end = Img_out.end<Vec3f>();
+  // increment (-100.0, 100.0)
+  float Increment = val / 100.0;  // saturation adjust
+  float delta = 0;
+  float minVal, maxVal;
+  float t1, t2, t3;
+  float L, S;
+  float alpha;
+  for (; inp_begin != inp_end; inp_begin++, out_begin++) {
+    t1 = (*inp_begin)[0];
+    t2 = (*inp_begin)[1];
+    t3 = (*inp_begin)[2];
+    minVal = std::min(std::min(t1, t2), t3);
+    maxVal = std::max(std::max(t1, t2), t3);
+    delta = (maxVal - minVal) / 255.0f;
+    L = 0.5f * (maxVal + minVal) / 255.0f;
+    S = std::max(0.5 * delta / L, 0.5 * delta / (1 - L));
+    if (Increment > 0) {
+      alpha = max(S, 1 - Increment);
+      alpha = 1.0f / alpha - 1;
+      (*out_begin)[0] =
+          (*inp_begin)[0] + ((*inp_begin)[0] - L * 255.0f) * alpha;
+      (*out_begin)[1] =
+          (*inp_begin)[1] + ((*inp_begin)[1] - L * 255.0f) * alpha;
+      (*out_begin)[2] =
+          (*inp_begin)[2] + ((*inp_begin)[2] - L * 255.0f) * alpha;
+    } else {
+      alpha = Increment;
+      (*out_begin)[0] =
+          L * 255.0f + ((*inp_begin)[0] - L * 255.0f) * (1 + alpha);
+      (*out_begin)[1] =
+          L * 255.0f + ((*inp_begin)[1] - L * 255.0f) * (1 + alpha);
+      (*out_begin)[2] =
+          L * 255.0f + ((*inp_begin)[2] - L * 255.0f) * (1 + alpha);
+    }
+  }
+  Img_out /= 255;
+
+  Img_out.convertTo(res, CV_8UC3, 255);
+  return res;
+}
+Mat isolateDark(Mat& img, double val) {
+  assert(img.type() == CV_8UC3);
+  Mat mask, res;
+  inRange(img, Scalar(255 * val, 255 * val, 255 * val), Scalar(255, 255, 255),
+          mask);
+  img.copyTo(res, mask);
+  return res;
+}
+Mat isolate(Mat& img, double val) {
+  assert(img.type() == CV_8UC3);
+  Mat mask, res;
+  inRange(img, Scalar(0 * val, 150 * val, 200 * val), Scalar(120, 255, 255),
+          mask);
+  img.copyTo(res, mask);
+  return res;
+}
+
+Mat toGray(Mat& img) {
+  int threshold_value = 0;
+  int threshold_type = 3;
+  int const max_value = 255;
+  int const max_type = 4;
+  int const max_binary_value = 255;
+
+  Mat rgb[3];
+  Mat res;
+  split(img, rgb);
+  threshold(rgb[2], res, threshold_value, max_binary_value, threshold_type);
+  return res;
+}
+Mat process(Mat& img) {
+  auto no_dark = isolateDark(img, 0.3);
+  auto with_vib = vib(img, 93);
+  auto with_isol = isolate(with_vib, 0.5);
+
+  return toGray(with_vib);
+}
+
+void process() {
+  const string img_path = R"(image.jpg)";
+  Mat image = imread(img_path);
+  if (!image.data) {
+    cout << "no image" << endl;
+    return;
+  }
+  auto res = process(image);
+  imwrite("image_processed.png", res);
+}
+int main() { process(); }
